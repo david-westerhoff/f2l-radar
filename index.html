@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>F2L-Radar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Figtree:wght@400;600;700&family=JetBrains+Mono:wght@600&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1422;
+    --panel: #161f33;
+    --panel-2: #1d2840;
+    --line: #2a3654;
+    --ink: #eaf0fb;
+    --muted: #93a0bb;
+    --sel: #ffd500;
+    --good: #22c27a;
+    --bad: #ff5468;
+    --cur: #5b8cff;
+    --hint: #ff8a1f;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 Figtree, system-ui, "Segoe UI", sans-serif;
+    padding: 0 16px;
+  }
+  .app { max-width: 1180px; margin: 0 auto; padding-block: 18px 32px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  h1 { font-family: Unbounded, Figtree, sans-serif; font-size: 1.35rem; margin: 0; letter-spacing: .01em; }
+  h1 span { color: var(--sel); }
+  .tabs { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; }
+  .tabs button { font: inherit; font-weight: 700; color: var(--muted); background: none; border: 0; border-radius: 9px; padding: 8px 14px; cursor: pointer; }
+  .tabs button[aria-selected="true"] { background: var(--sel); color: #1a1a1a; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  @media (max-width: 880px) { main { grid-template-columns: 1fr; } }
+
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+  .hud { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+  @media (max-width: 460px) { .hud { grid-template-columns: 1fr; } .timer { order: -1; } }
+  .task { font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 32px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px 3px 6px; font-size: .9rem; }
+  .dot { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+  .timer { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: clamp(2.2rem, 7vw, 3.2rem); line-height: 1; font-variant-numeric: tabular-nums; }
+  .timer.good { color: var(--good); }
+  .timer.bad { color: var(--bad); }
+  .msg { color: var(--muted); min-height: 1.5em; margin-top: 6px; }
+  .msg b { color: var(--ink); }
+
+  .view-wrap { position: relative; margin-top: 8px; }
+  #view { width: 100%; aspect-ratio: 1 / 0.82; max-height: 62vh; border-radius: 14px; background: radial-gradient(circle at 50% 42%, #22304d 0%, #121a2b 70%); touch-action: none; cursor: pointer; display: block; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  .float { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); font-family: "JetBrains Mono", monospace; font-weight: 600; color: var(--bad); font-size: 1.3rem; pointer-events: none; opacity: 0; transition: opacity .15s, transform .5s; }
+  .float.show { opacity: 1; transform: translate(-50%, -8px); }
+  .bar { position: absolute; left: 12px; right: 12px; bottom: 10px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--cur); }
+
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+  .btn { font: inherit; font-weight: 700; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); padding: 9px 14px; cursor: pointer; }
+  .btn.primary { background: var(--sel); color: #1a1a1a; border-color: var(--sel); padding-inline: 20px; }
+  .btn.small { padding: 5px 10px; font-size: .85rem; font-weight: 600; }
+  .spacer { flex: 1; }
+  .opt { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .9rem; }
+  .opt select { font: inherit; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; }
+  .opt input { accent-color: var(--sel); width: 16px; height: 16px; }
+  .hint { color: var(--muted); font-size: .85rem; margin: 10px 0 0; }
+  kbd { font-family: "JetBrains Mono", monospace; font-size: .8em; background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+
+  aside { display: grid; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+  .card h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 0 10px; font-weight: 700; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+  .tile small { display: block; color: var(--muted); font-size: .78rem; }
+  .tile b { font-family: "JetBrains Mono", monospace; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+  #chart { width: 100%; height: 150px; display: block; }
+  .legend { display: flex; gap: 14px; color: var(--muted); font-size: .8rem; margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+  .list li { display: grid; grid-template-columns: 34px 1fr auto auto; gap: 8px; align-items: center; padding: 5px 2px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  .list li:last-child { border-bottom: 0; }
+  .list .n { color: var(--muted); font-size: .8rem; }
+  .list .v { font-family: "JetBrains Mono", monospace; }
+  .list .d { color: var(--muted); font-size: .8rem; }
+  .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 2px 6px; border-radius: 6px; }
+  .x:hover { color: var(--bad); }
+  .empty { color: var(--muted); font-size: .9rem; }
+  .row-end { display: flex; justify-content: flex-end; margin-top: 8px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>F2L<span>-</span>Radar</h1>
+    <div class="tabs" role="tablist">
+      <button id="tab-find" role="tab" aria-selected="true">Paar finden</button>
+      <button id="tab-look" role="tab" aria-selected="false">Look-ahead</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="hud">
+        <div>
+          <div class="task" id="task"></div>
+          <div class="msg" id="msg"></div>
+        </div>
+        <div class="timer" id="timer">0.00</div>
+      </div>
+      <div class="view-wrap">
+        <div id="view"></div>
+        <div class="float" id="float">+1</div>
+        <div class="bar" id="bar" hidden><i id="barfill"></i></div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="rotL" aria-label="Würfel nach links drehen">⟲</button>
+        <button class="btn" id="rotR" aria-label="Würfel nach rechts drehen">⟳</button>
+        <button class="btn primary" id="start">Start</button>
+        <span class="spacer"></span>
+        <label class="opt" id="opt-fix"><input type="checkbox" id="fix"> Paar vorgeben</label>
+        <label class="opt" id="opt-tps" hidden>Start-Tempo
+          <select id="tps">
+            <option value="1">1 Zug/s</option>
+            <option value="1.5">1,5 Züge/s</option>
+            <option value="2" selected>2 Züge/s</option>
+            <option value="2.5">2,5 Züge/s</option>
+            <option value="3">3 Züge/s</option>
+            <option value="4">4 Züge/s</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h2 id="stats-title">Statistik</h2>
+        <div class="tiles" id="tiles"></div>
+      </div>
+      <div class="card">
+        <h2 id="chart-title">Verlauf</h2>
+        <canvas id="chart"></canvas>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="card">
+        <h2 id="list-title">Letzte Versuche</h2>
+        <ul class="list" id="list"></ul>
+        <div class="row-end"><button class="btn small" id="clear">Alle löschen</button></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+
+/* ---------- Würfel-Logik ---------- */
+const FACES = ['U', 'R', 'L', 'F', 'B', 'D'];
+const NORMAL = { U: [0, 1, 0], D: [0, -1, 0], R: [1, 0, 0], L: [-1, 0, 0], F: [0, 0, 1], B: [0, 0, -1] };
+const OPP = [5, 2, 1, 4, 3, 0];
+const HEX = { U: '#ffd500', D: '#ffffff', F: '#009b48', B: '#0046ad', R: '#c41e3a', L: '#ff5800' };
+const CNAME = { U: 'Gelb', D: 'Weiß', F: 'Grün', B: 'Blau', R: 'Rot', L: 'Orange' };
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const eq = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+const faceOf = n => FACES.find(f => eq(NORMAL[f], n));
+const key = (p, n) => p.join(',') + '|' + n.join(',');
+
+// Drehung um die Achse k: t=1 im Uhrzeigersinn (-90°), t=-1 gegen (+90°), t=2 halbe Drehung
+function rot(v, k, t) {
+  const d = dot(v, k);
+  if (t === 2) return [-v[0] + 2 * k[0] * d, -v[1] + 2 * k[1] * d, -v[2] + 2 * k[2] * d];
+  const c = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+  const s = t === 1 ? -1 : 1;
+  return [s * c[0] + k[0] * d, s * c[1] + k[1] * d, s * c[2] + k[2] * d];
+}
+
+const MOVES = [];
+FACES.forEach((f, fi) => [1, -1, 2].forEach(t => MOVES.push({ f, fi, t, name: f + (t === 1 ? '' : t === -1 ? "'" : '2') })));
+const MV = Object.fromEntries(MOVES.map((m, i) => [m.name, i]));
+const SEARCH = MOVES.map((m, i) => i).filter(i => MOVES[i].f !== 'D');
+
+// Plätze für Ecken (Position + Richtung des weißen Aufklebers) und Kanten
+const CS = [], ES = [], CK = {}, EK = {};
+for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+  const p = [x, y, z], nz = p.filter(v => v !== 0).length;
+  if (nz < 2) continue;
+  for (let a = 0; a < 3; a++) if (p[a] !== 0) {
+    const n = [0, 0, 0]; n[a] = p[a];
+    if (nz === 3) { CK[key(p, n)] = CS.length; CS.push({ p, n }); }
+    else { EK[key(p, n)] = ES.length; ES.push({ p, n }); }
+  }
+}
+const mkTable = (S, K) => MOVES.map(mv => Int8Array.from(S.map(({ p, n }) => {
+  const k = NORMAL[mv.f];
+  return dot(p, k) === 1 ? K[key(rot(p, k, mv.t), rot(n, k, mv.t))] : K[key(p, n)];
+})));
+const MTC = mkTable(CS, CK), MTE = mkTable(ES, EK);
+
+// F2L-Paare (Weiß unten, Grün vorne)
+const PAIRS = [
+  { sx: 1, sz: 1, faces: ['F', 'R'] },
+  { sx: -1, sz: 1, faces: ['F', 'L'] },
+  { sx: 1, sz: -1, faces: ['B', 'R'] },
+  { sx: -1, sz: -1, faces: ['B', 'L'] }
+];
+PAIRS.forEach(P => { P.name = P.faces.map(f => CNAME[f]).join('-'); P.yaw = Math.atan2(-P.sx, P.sz); });
+
+let cubies = [];
+const mulM = (M, v) => [0, 1, 2].map(i => v[0] * M[0][i] + v[1] * M[1][i] + v[2] * M[2][i]);
+function buildLogic() {
+  cubies = [];
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+    const p = [x, y, z], nz = p.filter(v => v !== 0).length;
+    if (nz === 0) continue;
+    const stickers = [];
+    for (let a = 0; a < 3; a++) if (p[a] !== 0) { const ln = [0, 0, 0]; ln[a] = p[a]; stickers.push({ ln, face: faceOf(ln) }); }
+    const type = nz === 3 ? 'corner' : nz === 2 ? 'edge' : 'center';
+    let pair = -1, role = 'other';
+    if (type === 'corner' && y === -1) { pair = PAIRS.findIndex(P => P.sx === x && P.sz === z); role = 'f2l'; }
+    if (type === 'edge' && y === 0) { pair = PAIRS.findIndex(P => P.sx === x && P.sz === z); role = 'f2l'; }
+    if (type === 'edge' && y === -1) role = 'cross';
+    const white = stickers.findIndex(s => s.face === 'D');
+    cubies.push({ id: cubies.length, home: p.slice(), pos: p.slice(), M: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], stickers, type, pair, role, trk: white >= 0 ? white : 0 });
+  }
+}
+buildLogic();
+const pairPieces = PAIRS.map((P, j) => ({
+  corner: cubies.find(c => c.type === 'corner' && c.pair === j),
+  edge: cubies.find(c => c.type === 'edge' && c.pair === j)
+}));
+const crossEdges = cubies.filter(c => c.role === 'cross');
+
+function curState(c) { const n = mulM(c.M, c.stickers[c.trk].ln); return (c.type === 'corner' ? CK : EK)[key(c.pos, n)]; }
+function goalState(c) { return (c.type === 'corner' ? CK : EK)[key(c.home, c.stickers[c.trk].ln)]; }
+const pairSolved = j => curState(pairPieces[j].corner) === goalState(pairPieces[j].corner) && curState(pairPieces[j].edge) === goalState(pairPieces[j].edge);
+const unsolved = () => [0, 1, 2, 3].filter(j => !pairSolved(j));
+
+function applyLogic(mi) {
+  const mv = MOVES[mi], k = NORMAL[mv.f];
+  for (const c of cubies) if (dot(c.pos, k) === 1) { c.pos = rot(c.pos, k, mv.t); c.M = c.M.map(col => rot(col, k, mv.t)); }
+}
+function resetLogic() { for (const c of cubies) { c.pos = c.home.slice(); c.M = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; } }
+
+// Zufälliger F2L-Zustand: Cross bleibt heil, alle vier Paare verstreut
+function scrambleF2L() {
+  const sides = ['R', 'L', 'F', 'B'], ut = ['U', "U'", 'U2'];
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  for (let tries = 0; tries < 50; tries++) {
+    resetLogic();
+    for (let i = 0; i < 26; i++) {
+      if (Math.random() < 0.25) { applyLogic(MV[pick(ut)]); continue; }
+      const s = pick(sides), inv = Math.random() < 0.5;
+      applyLogic(MV[s + (inv ? "'" : '')]);
+      applyLogic(MV[pick(ut)]);
+      applyLogic(MV[s + (inv ? '' : "'")]);
+    }
+    applyLogic(MV[pick(ut)]);
+    if (unsolved().length === 4) return;
+  }
+}
+
+// Abstandstabellen für ein Paar allein
+const pairDist = PAIRS.map((P, j) => {
+  const d = new Int8Array(576).fill(-1);
+  const g = goalState(pairPieces[j].corner) * 24 + goalState(pairPieces[j].edge);
+  d[g] = 0; let q = [g];
+  while (q.length) {
+    const nq = [];
+    for (const x of q) {
+      const c = (x / 24) | 0, e = x % 24;
+      for (const m of SEARCH) { const y = MTC[m][c] * 24 + MTE[m][e]; if (d[y] < 0) { d[y] = d[x] + 1; nq.push(y); } }
+    }
+    q = nq;
+  }
+  return d;
+});
+
+// Kürzeste Züge, die Paar j einsetzen, ohne Cross und fertige Paare zu zerstören
+function solvePair(j) {
+  const tr = [pairPieces[j].corner, pairPieces[j].edge, ...crossEdges];
+  for (let k = 0; k < 4; k++) if (k !== j && pairSolved(k)) tr.push(pairPieces[k].corner, pairPieces[k].edge);
+  const n = tr.length, isC = tr.map(c => c.type === 'corner');
+  const goal = Int8Array.from(tr.map(goalState));
+  const PD = pairDist[j];
+  const h = s => {
+    let d = Math.max(0, PD[s[0] * 24 + s[1]]), cm = 0, sc = 0, se = 0;
+    for (let i = 2; i < 6; i++) if (s[i] !== goal[i]) cm++;
+    for (let i = 6; i < n; i++) if (s[i] !== goal[i]) { if (isC[i]) sc++; else se++; }
+    return Math.max(d, cm, (sc + 1) >> 1, (se + 1) >> 1);
+  };
+  const st = Array.from({ length: 22 }, () => new Int8Array(n));
+  st[0].set(tr.map(curState));
+  const path = [];
+  let nodes = 0;
+  const dfs = (depth, bound, lastF) => {
+    const s = st[depth], hh = h(s);
+    if (hh === 0) return depth;
+    if (depth + hh > bound || ++nodes > 6e6) return -1;
+    const nx = st[depth + 1];
+    for (const m of SEARCH) {
+      const f = MOVES[m].fi;
+      if (f === lastF || (lastF >= 0 && OPP[lastF] === f && f < lastF)) continue;
+      const tc = MTC[m], te = MTE[m];
+      for (let i = 0; i < n; i++) nx[i] = isC[i] ? tc[s[i]] : te[s[i]];
+      path[depth] = m;
+      const r = dfs(depth + 1, bound, f);
+      if (r >= 0) return r;
+    }
+    return -1;
+  };
+  for (let b = h(st[0]); b <= 16; b++) { const r = dfs(0, b, -1); if (r >= 0) return path.slice(0, r); }
+  return [];
+}
+
+/* ---------- 3D-Darstellung ---------- */
+const view = $('#view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setClearColor(0x000000, 0);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+camera.position.set(0, 0, 11.2);
+scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+const sun = new THREE.DirectionalLight(0xffffff, 0.45); sun.position.set(3, 6, 8); scene.add(sun);
+const world = new THREE.Group(); scene.add(world);
+
+function roundedRect(s, r) {
+  const sh = new THREE.Shape(), h = s / 2;
+  sh.moveTo(-h + r, -h); sh.lineTo(h - r, -h); sh.quadraticCurveTo(h, -h, h, -h + r);
+  sh.lineTo(h, h - r); sh.quadraticCurveTo(h, h, h - r, h); sh.lineTo(-h + r, h);
+  sh.quadraticCurveTo(-h, h, -h, h - r); sh.lineTo(-h, -h + r); sh.quadraticCurveTo(-h, -h, -h + r, -h);
+  return new THREE.ShapeGeometry(sh, 4);
+}
+const stickerGeo = roundedRect(0.84, 0.12);
+const bodyGeo = new THREE.BoxGeometry(0.97, 0.97, 0.97);
+const bodyMat = new THREE.MeshLambertMaterial({ color: 0x111318 });
+const shellGeo = new THREE.BoxGeometry(1.16, 1.16, 1.16);
+const zAxis = new THREE.Vector3(0, 0, 1);
+
+for (const c of cubies) {
+  const g = new THREE.Group();
+  g.userData.cid = c.id;
+  g.add(new THREE.Mesh(bodyGeo, bodyMat));
+  c.mats = [];
+  for (const s of c.stickers) {
+    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(HEX[s.face]), emissive: 0x000000 });
+    const m = new THREE.Mesh(stickerGeo, mat);
+    const n = new THREE.Vector3(...s.ln);
+    m.quaternion.setFromUnitVectors(zAxis, n);
+    m.position.copy(n.multiplyScalar(0.487));
+    g.add(m); c.mats.push(mat);
+  }
+  const shell = new THREE.Mesh(shellGeo, new THREE.MeshBasicMaterial({ color: 0xffd500, transparent: true, opacity: 0.4, side: THREE.BackSide, depthWrite: false }));
+  shell.visible = false; shell.raycast = () => {};
+  g.add(shell); c.shell = shell;
+  c.mesh = g; world.add(g);
+}
+const m4 = new THREE.Matrix4();
+function sync(c) {
+  const M = c.M;
+  c.mesh.position.set(c.pos[0], c.pos[1], c.pos[2]);
+  m4.set(M[0][0], M[1][0], M[2][0], 0, M[0][1], M[1][1], M[2][1], 0, M[0][2], M[1][2], M[2][2], 0, 0, 0, 0, 1);
+  c.mesh.quaternion.setFromRotationMatrix(m4);
+}
+const syncAll = () => cubies.forEach(sync);
+
+const HL = { sel: [0xffd500, 0x3a3000], ok: [0x22c27a, 0x06361f], bad: [0xff5468, 0x3d0710], cur: [0x5b8cff, 0x0a1a44], hint: [0xff8a1f, 0x3d1d00] };
+function setHL(c, kind) {
+  c.hl = kind || null;
+  c.shell.visible = !!kind;
+  if (kind) c.shell.material.color.setHex(HL[kind][0]);
+  c.mats.forEach(m => m.emissive.setHex(kind ? HL[kind][1] : 0));
+  c.mesh.scale.setScalar(kind === 'sel' ? 1.05 : 1);
+}
+const clearHL = () => cubies.forEach(c => setHL(c, null));
+
+// Ansicht
+let yaw = -Math.PI / 4, yawT = yaw, pitch = 0.5, pitchT = pitch;
+function turnView(d) { yawT += d * Math.PI / 2; }
+function faceSlot(j) {
+  let t = PAIRS[j].yaw;
+  while (t - yawT > Math.PI) t -= 2 * Math.PI;
+  while (yawT - t > Math.PI) t += 2 * Math.PI;
+  yawT = t;
+}
+
+function resize() {
+  const r = view.getBoundingClientRect();
+  if (!r.width) return;
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height;
+  camera.fov = camera.aspect < 1 ? 30 / Math.max(camera.aspect, 0.6) : 30;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view);
+
+let anim = null;
+function loop(now) {
+  yaw += (yawT - yaw) * 0.18; pitch += (pitchT - pitch) * 0.18;
+  world.rotation.set(pitch, yaw, 0);
+  if (anim) {
+    const p = Math.min(1, (now - anim.t0) / anim.dur);
+    const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+    anim.pivot.setRotationFromAxisAngle(anim.axis, anim.angle * e);
+    if (p >= 1) finishAnim();
+  }
+  if (m1.state === 'run') $('#timer').textContent = fmt((now - m1.t0) / 1000 + m1.pen);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+function animateMove(mi, dur) {
+  return new Promise(res => {
+    const mv = MOVES[mi], k = NORMAL[mv.f];
+    const layer = cubies.filter(c => dot(c.pos, k) === 1);
+    const pivot = new THREE.Group(); world.add(pivot);
+    layer.forEach(c => pivot.attach(c.mesh));
+    anim = { mi, layer, pivot, axis: new THREE.Vector3(...k), angle: mv.t === 2 ? -Math.PI : mv.t * -Math.PI / 2, t0: performance.now(), dur, res };
+  });
+}
+function finishAnim() {
+  const a = anim; anim = null;
+  applyLogic(a.mi);
+  a.layer.forEach(c => { world.attach(c.mesh); sync(c); });
+  world.remove(a.pivot);
+  a.res();
+}
+
+// Klicken und Ziehen
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+let drag = null;
+view.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, moved: false }; view.setPointerCapture(e.pointerId); });
+view.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 7) return;
+  drag.moved = true;
+  yawT += dx * 0.011; yaw = yawT;
+  pitchT = Math.max(-0.9, Math.min(1.25, pitchT + dy * 0.009)); pitch = pitchT;
+  drag.x = e.clientX; drag.y = e.clientY;
+});
+view.addEventListener('pointerup', e => {
+  if (!drag) return;
+  const wasDrag = drag.moved; drag = null;
+  if (wasDrag) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects(world.children, true)[0];
+  if (!hit) return;
+  let o = hit.object;
+  while (o && o.userData.cid === undefined) o = o.parent;
+  if (o) pick(cubies[o.userData.cid]);
+});
+view.addEventListener('pointercancel', () => { drag = null; });
+
+/* ---------- Speicher ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('f2lradar.' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('f2lradar.' + k, JSON.stringify(v)); } catch (e) {} }
+};
+let findData = store.get('find', []);
+let lookData = store.get('look', []);
+const opts = Object.assign({ mode: 'find', fix: false, tps: 2 }, store.get('opts', {}));
+const saveOpts = () => store.set('opts', opts);
+
+const fmt = s => s.toFixed(2);
+const fmtNum = (v, d = 2) => v.toFixed(d).replace('.', ',');
+const fmtDate = d => new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+
+/* ---------- Modus 1: Paar finden ---------- */
+const m1 = { state: 'idle', t0: 0, pen: 0, sel: null, target: -1 };
+function flashFloat(text) {
+  const f = $('#float'); f.textContent = text; f.classList.add('show');
+  clearTimeout(f._t); f._t = setTimeout(() => f.classList.remove('show'), 550);
+}
+function flashBad(cs, keep) {
+  cs.forEach(c => setHL(c, 'bad'));
+  setTimeout(() => cs.forEach(c => { if (c.hl === 'bad') setHL(c, keep && keep.includes(c) ? 'sel' : null); }), 380);
+}
+function startFind() {
+  scrambleF2L(); syncAll(); clearHL();
+  m1.target = opts.fix ? Math.floor(Math.random() * 4) : -1;
+  m1.sel = null; m1.pen = 0; m1.t0 = performance.now(); m1.state = 'run';
+  $('#timer').className = 'timer';
+  renderTask();
+  $('#msg').innerHTML = 'Klick die Ecke und die Kante eines Paars an.';
+  $('#start').textContent = 'Neu mischen';
+}
+function pickFind(c) {
+  if (m1.state !== 'run' || c.type === 'center') return;
+  const ok = c.role === 'f2l' && (m1.target < 0 || c.pair === m1.target);
+  if (!ok) { m1.pen += 1; flashFloat('+1'); flashBad([c], m1.sel ? [m1.sel] : null); return; }
+  if (!m1.sel) { m1.sel = c; setHL(c, 'sel'); return; }
+  if (m1.sel === c) { setHL(c, null); m1.sel = null; return; }
+  if (m1.sel.pair === c.pair && m1.sel.type !== c.type) {
+    const t = (performance.now() - m1.t0) / 1000 + m1.pen;
+    m1.state = 'done';
+    setHL(m1.sel, 'ok'); setHL(c, 'ok');
+    $('#timer').textContent = fmt(t); $('#timer').className = 'timer good';
+    findData.push({ t: Math.round(t * 1000) / 1000, pen: m1.pen, d: Date.now(), fix: opts.fix });
+    store.set('find', findData);
+    $('#msg').innerHTML = `<b>${PAIRS[c.pair].name}</b> gefunden${m1.pen ? `, davon ${m1.pen} s Strafe` : ''}. Weiter mit <kbd>Leertaste</kbd>.`;
+    $('#start').textContent = 'Nächster';
+    renderStats();
+    return;
+  }
+  m1.pen += 1; flashFloat('+1');
+  const prev = m1.sel; m1.sel = null; setHL(prev, null);
+  flashBad([prev, c]);
+}
+
+/* ---------- Modus 2: Look-ahead ---------- */
+const m3 = { state: 'idle', run: 0, tps: 2, pairs: 0, best: 0, target: -1, cands: [], sel: null, found: -1, segStart: 0, searches: [] };
+function setBar(p) { $('#barfill').style.width = (p * 100).toFixed(1) + '%'; }
+function newBoard() { scrambleF2L(); syncAll(); clearHL(); }
+function startLook() {
+  m3.run++; m3.state = 'run'; m3.tps = opts.tps; m3.pairs = 0; m3.best = 0; m3.searches = [];
+  $('#timer').className = 'timer';
+  $('#start').textContent = 'Neu starten';
+  $('#bar').hidden = false;
+  newBoard();
+  const u = unsolved();
+  segment(u[Math.floor(Math.random() * u.length)], m3.run);
+}
+function lookHud() {
+  $('#timer').textContent = fmtNum(m3.tps) + '/s';
+  $('#msg').innerHTML = `Paare in Folge: <b>${m3.pairs}</b>`;
+}
+async function segment(target, run) {
+  if (run !== m3.run || m3.state !== 'run') return;
+  if (pairSolved(target)) {
+    const u = unsolved();
+    if (!u.length) { newBoard(); const v = unsolved(); return segment(v[Math.floor(Math.random() * v.length)], run); }
+    return segment(u[Math.floor(Math.random() * u.length)], run);
+  }
+  m3.target = target; m3.found = -1; m3.sel = null;
+  m3.cands = unsolved().filter(j => j !== target);
+  clearHL();
+  setHL(pairPieces[target].corner, 'cur'); setHL(pairPieces[target].edge, 'cur');
+  renderTask();
+  lookHud();
+  faceSlot(target);
+  const sol = solvePair(target);
+  setBar(0);
+  await new Promise(r => setTimeout(r, 380));
+  m3.segStart = performance.now();
+  const dur = 1000 / m3.tps;
+  for (let i = 0; i < sol.length; i++) {
+    if (run !== m3.run || m3.state !== 'run') return;
+    await animateMove(sol[i], dur);
+    setBar((i + 1) / sol.length);
+  }
+  if (run !== m3.run || m3.state !== 'run') return;
+  setHL(pairPieces[target].corner, null); setHL(pairPieces[target].edge, null);
+  if (m3.found < 0) { failLook('Zu langsam, das Paar war schon drin.'); return; }
+  m3.pairs++; m3.best = m3.tps; m3.tps = Math.round((m3.tps + 0.25) * 100) / 100;
+  const next = m3.found;
+  setHL(pairPieces[next].corner, null); setHL(pairPieces[next].edge, null);
+  const left = unsolved();
+  if (left.length <= 1) {
+    newBoard();
+    const v = unsolved();
+    segment(v[Math.floor(Math.random() * v.length)], run);
+  } else segment(next, run);
+}
+function pickLook(c) {
+  if (m3.state !== 'run' || m3.found >= 0 || c.type === 'center') return;
+  if (c.role !== 'f2l' || !m3.cands.includes(c.pair)) { flashBad([c]); failLook(c.pair === m3.target ? 'Das ist das Paar, das gerade eingesetzt wird.' : 'Das Teil gehört zu keinem offenen Paar.'); return; }
+  if (!m3.sel) { m3.sel = c; setHL(c, 'sel'); return; }
+  if (m3.sel === c) { setHL(c, null); m3.sel = null; return; }
+  if (m3.sel.pair === c.pair && m3.sel.type !== c.type) {
+    m3.found = c.pair;
+    m3.searches.push((performance.now() - m3.segStart) / 1000);
+    setHL(m3.sel, 'ok'); setHL(c, 'ok');
+    $('#msg').innerHTML = `Paare in Folge: <b>${m3.pairs}</b> · <b>${PAIRS[c.pair].name}</b> gefunden`;
+    return;
+  }
+  flashBad([m3.sel, c]);
+  failLook('Ecke und Kante gehören nicht zusammen.');
+}
+function failLook(reason) {
+  m3.state = 'over';
+  $('#timer').className = 'timer bad';
+  const avg = m3.searches.length ? m3.searches.reduce((a, b) => a + b, 0) / m3.searches.length : null;
+  lookData.push({ pairs: m3.pairs, best: m3.best, start: opts.tps, avg: avg && Math.round(avg * 100) / 100, d: Date.now() });
+  store.set('look', lookData);
+  $('#task').textContent = `Lauf vorbei: ${m3.pairs} ${m3.pairs === 1 ? 'Paar' : 'Paare'}`;
+  $('#msg').innerHTML = `${reason} Orange: ein offenes Paar. Neuer Lauf mit <kbd>Leertaste</kbd>.`;
+  $('#start').textContent = 'Neuer Lauf';
+  setTimeout(() => {
+    if (m3.state !== 'over') return;
+    const j = m3.cands.find(k => k !== m3.found);
+    if (j !== undefined) { setHL(pairPieces[j].corner, 'hint'); setHL(pairPieces[j].edge, 'hint'); }
+  }, 420);
+  renderStats();
+}
+
+/* ---------- Oberfläche ---------- */
+function pick(c) { if (opts.mode === 'find') pickFind(c); else pickLook(c); }
+
+function chipHTML(j) {
+  const P = PAIRS[j];
+  return `<span class="chip"><span class="dot" style="background:${HEX[P.faces[0]]}"></span><span class="dot" style="background:${HEX[P.faces[1]]}"></span>${P.name}</span>`;
+}
+function renderTask() {
+  const t = $('#task');
+  if (opts.mode === 'find') {
+    t.innerHTML = m1.target >= 0 ? `Finde ${chipHTML(m1.target)}` : 'Finde ein beliebiges Paar';
+  } else {
+    t.innerHTML = m3.state === 'run' && m3.target >= 0 ? `Blau wird eingesetzt. Finde das nächste Paar.` : 'Finde das nächste Paar, bevor das blaue drin ist';
+  }
+}
+
+function setMode(mode) {
+  opts.mode = mode; saveOpts();
+  m1.state = 'idle'; m3.state = 'idle'; m3.run++;
+  if (anim) finishAnim();
+  $('#tab-find').setAttribute('aria-selected', mode === 'find');
+  $('#tab-look').setAttribute('aria-selected', mode === 'look');
+  $('#opt-fix').hidden = mode !== 'find';
+  $('#opt-tps').hidden = mode !== 'look';
+  $('#bar').hidden = true;
+  $('#start').textContent = 'Start';
+  $('#timer').className = 'timer';
+  $('#timer').textContent = mode === 'find' ? '0.00' : fmtNum(opts.tps) + '/s';
+  m1.target = -1; m3.target = -1;
+  newBoard();
+  renderTask();
+  $('#msg').innerHTML = mode === 'find'
+    ? 'Start mit <kbd>Leertaste</kbd>. Die Zeit läuft, sobald der Würfel neu gemischt ist.'
+    : 'Ein Paar wird automatisch eingesetzt. Klick währenddessen Ecke und Kante eines anderen Paars an. Jedes Paar macht es schneller.';
+  $('#hint').innerHTML = mode === 'find'
+    ? 'Falscher Klick: +1 s. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.'
+    : 'Falscher Klick oder zu langsam: Lauf vorbei. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.';
+  renderStats();
+}
+
+function tile(label, val) { return `<div class="tile"><small>${label}</small><b>${val}</b></div>`; }
+const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+
+function renderStats() {
+  const tiles = $('#tiles'), list = $('#list');
+  if (opts.mode === 'find') {
+    const d = findData.filter(x => !!x.fix === !!opts.fix), t = d.map(x => x.t);
+    $('#stats-title').textContent = opts.fix ? 'Statistik · Paar vorgegeben' : 'Statistik · beliebiges Paar';
+    tiles.innerHTML = tile('Bestzeit', t.length ? fmtNum(Math.min(...t)) : '–')
+      + tile('Ø letzte 5', t.length >= 5 ? fmtNum(mean(t.slice(-5))) : '–')
+      + tile('Ø letzte 12', t.length >= 12 ? fmtNum(mean(t.slice(-12))) : '–')
+      + tile('Versuche', String(t.length));
+    $('#chart-title').textContent = 'Verlauf · Sekunden';
+    $('#legend').innerHTML = '<span><i style="background:#8fb0ff"></i>Zeit</span><span><i style="background:#ffd500"></i>Ø 5</span>';
+    drawChart(t.slice(-60), true);
+    $('#list-title').textContent = 'Letzte Versuche';
+    list.innerHTML = d.length ? d.slice().reverse().slice(0, 40).map((x, i) => {
+      const idx = findData.indexOf(x);
+      return `<li><span class="n">${d.length - i}</span><span class="v">${fmtNum(x.t)} s${x.pen ? ` <span class="d">(+${x.pen})</span>` : ''}</span><span class="d">${fmtDate(x.d)}</span><button class="x" data-del="${idx}" aria-label="Versuch löschen">×</button></li>`;
+    }).join('') : '<li class="empty">Noch keine Versuche.</li>';
+  } else {
+    const d = lookData;
+    const bests = d.map(x => x.best).filter(Boolean), pairs = d.map(x => x.pairs), avgs = d.map(x => x.avg).filter(v => v != null);
+    $('#stats-title').textContent = 'Statistik · Look-ahead';
+    tiles.innerHTML = tile('Bestes Tempo', bests.length ? fmtNum(Math.max(...bests)) + '/s' : '–')
+      + tile('Meiste Paare', pairs.length ? String(Math.max(...pairs)) : '–')
+      + tile('Ø Suchzeit', avgs.length ? fmtNum(mean(avgs.slice(-10))) + ' s' : '–')
+      + tile('Läufe', String(d.length));
+    $('#chart-title').textContent = 'Verlauf · Paare pro Lauf';
+    $('#legend').innerHTML = '<span><i style="background:#8fb0ff"></i>Paare</span><span><i style="background:#ffd500"></i>Ø 5</span>';
+    drawChart(pairs.slice(-60), false);
+    $('#list-title').textContent = 'Letzte Läufe';
+    list.innerHTML = d.length ? d.slice().reverse().slice(0, 40).map((x, i) => {
+      const idx = d.length - 1 - i;
+      return `<li><span class="n">${d.length - i}</span><span class="v">${x.pairs} Paare${x.best ? ` · ${fmtNum(x.best)}/s` : ''}</span><span class="d">${fmtDate(x.d)}</span><button class="x" data-del="${idx}" aria-label="Lauf löschen">×</button></li>`;
+    }).join('') : '<li class="empty">Noch keine Läufe.</li>';
+  }
+}
+
+function drawChart(vals, lowerBetter) {
+  const cv = $('#chart'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  g.font = '11px Figtree, sans-serif'; g.fillStyle = '#93a0bb';
+  if (vals.length < 2) { g.fillText('Ab zwei Versuchen erscheint hier eine Kurve.', 4, h / 2); return; }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (!lowerBetter) lo = 0;
+  if (hi - lo < 1e-6) hi = lo + 1;
+  const padL = 30, padR = 6, padT = 8, padB = 16;
+  const X = i => padL + (w - padL - padR) * i / (vals.length - 1);
+  const Y = v => padT + (h - padT - padB) * (1 - (v - lo) / (hi - lo));
+  g.strokeStyle = '#2a3654'; g.lineWidth = 1;
+  [lo, (lo + hi) / 2, hi].forEach(v => {
+    g.beginPath(); g.moveTo(padL, Y(v) + .5); g.lineTo(w - padR, Y(v) + .5); g.stroke();
+    g.fillText(lowerBetter ? v.toFixed(1).replace('.', ',') : String(Math.round(v)), 2, Y(v) + 4);
+  });
+  g.strokeStyle = '#8fb0ff'; g.lineWidth = 1.6; g.beginPath();
+  vals.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))); g.stroke();
+  g.fillStyle = '#8fb0ff';
+  vals.forEach((v, i) => { g.beginPath(); g.arc(X(i), Y(v), 2.2, 0, 7); g.fill(); });
+  if (vals.length >= 5) {
+    g.strokeStyle = '#ffd500'; g.lineWidth = 2; g.beginPath();
+    for (let i = 4; i < vals.length; i++) { const a = mean(vals.slice(i - 4, i + 1)); i === 4 ? g.moveTo(X(i), Y(a)) : g.lineTo(X(i), Y(a)); }
+    g.stroke();
+  }
+  g.fillStyle = '#93a0bb'; g.fillText(`letzte ${vals.length}`, w - padR - 48, h - 3);
+}
+
+$('#list').addEventListener('click', e => {
+  const b = e.target.closest('[data-del]'); if (!b) return;
+  const i = +b.dataset.del;
+  if (opts.mode === 'find') { findData.splice(i, 1); store.set('find', findData); }
+  else { lookData.splice(i, 1); store.set('look', lookData); }
+  renderStats();
+});
+let clearArmed = null;
+$('#clear').addEventListener('click', () => {
+  const b = $('#clear');
+  if (!clearArmed) { b.textContent = 'Wirklich alle löschen?'; clearArmed = setTimeout(() => { clearArmed = null; b.textContent = 'Alle löschen'; }, 3000); return; }
+  clearTimeout(clearArmed); clearArmed = null; b.textContent = 'Alle löschen';
+  if (opts.mode === 'find') { findData = findData.filter(x => !!x.fix !== !!opts.fix); store.set('find', findData); }
+  else { lookData = []; store.set('look', lookData); }
+  renderStats();
+});
+
+function primary() {
+  if (opts.mode === 'find') startFind(); else startLook();
+}
+$('#start').addEventListener('click', primary);
+$('#rotL').addEventListener('click', () => turnView(-1));
+$('#rotR').addEventListener('click', () => turnView(1));
+$('#tab-find').addEventListener('click', () => setMode('find'));
+$('#tab-look').addEventListener('click', () => setMode('look'));
+$('#fix').checked = opts.fix;
+$('#fix').addEventListener('change', e => { opts.fix = e.target.checked; saveOpts(); m1.state = 'idle'; m1.target = -1; $('#start').textContent = 'Start'; renderTask(); renderStats(); });
+$('#tps').value = String(opts.tps);
+$('#tps').addEventListener('change', e => { opts.tps = +e.target.value; saveOpts(); if (m3.state !== 'run') $('#timer').textContent = fmtNum(opts.tps) + '/s'; });
+document.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('select, input')) return;
+  if (e.code === 'Space') { e.preventDefault(); if (e.repeat) return; if (opts.mode === 'find' && m1.state === 'run') return; if (opts.mode === 'look' && m3.state === 'run') return; primary(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); turnView(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); turnView(1); }
+});
+window.addEventListener('resize', renderStats);
+
+setMode(opts.mode);
+resize();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
