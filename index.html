@@ -455,6 +455,7 @@ view.addEventListener('pointerup', e => {
   if (!drag) return;
   const wasDrag = drag.moved; drag = null;
   if (wasDrag) return;
+  if (opts.mode === 'look' && m3.state === 'run' && m3.phase === 'anim') { flagLook(); return; }
   const r = renderer.domElement.getBoundingClientRect();
   ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ptr, camera);
@@ -523,21 +524,36 @@ function pickFind(c) {
 }
 
 /* ---------- Modus 2: Look-ahead ---------- */
-const m3 = { state: 'idle', run: 0, tps: 2, pairs: 0, best: 0, target: -1, cands: [], sel: null, found: -1, segStart: 0, searches: [] };
+// Ablauf je Paar: 'anim' (blaues Paar dreht sich ein, melden per Leertaste/Tippen)
+// → 'verify' (Würfel grau, gemeldetes Paar aus dem Gedächtnis anklicken)
+const m3 = { state: 'idle', phase: '', run: 0, tps: 2, pairs: 0, best: 0, target: -1, cands: [], sel: null, flagged: false, segStart: 0, searches: [], verify: null };
 function setBar(p) { $('#barfill').style.width = (p * 100).toFixed(1) + '%'; }
-function newBoard() { scrambleF2L(); syncAll(); clearHL(); }
+function newBoard() { scrambleF2L(); syncAll(); clearHL(); setGrey(false); }
+const GREY = new THREE.Color(0x4a5163);
+function setGrey(on) {
+  for (const c of cubies) {
+    if (c.type === 'center') continue;
+    c.mats.forEach((m, i) => m.color.copy(on ? GREY : new THREE.Color(HEX[c.stickers[i].face])));
+  }
+}
 function startLook() {
   m3.run++; m3.state = 'run'; m3.tps = opts.tps; m3.pairs = 0; m3.best = 0; m3.searches = [];
   $('#timer').className = 'timer';
-  $('#start').textContent = 'Neu starten';
   $('#bar').hidden = false;
   newBoard();
   const u = unsolved();
   segment(u[Math.floor(Math.random() * u.length)], m3.run);
 }
-function lookHud() {
+function lookHud(extra) {
   $('#timer').textContent = fmtNum(m3.tps) + '/s';
-  $('#msg').innerHTML = `Paare in Folge: <b>${m3.pairs}</b>`;
+  $('#msg').innerHTML = `Paare in Folge: <b>${m3.pairs}</b>${extra ? ' · ' + extra : ''}`;
+}
+function flagLook() {
+  if (m3.state !== 'run' || m3.phase !== 'anim' || m3.flagged) return;
+  m3.flagged = true;
+  m3.searches.push((performance.now() - m3.segStart) / 1000);
+  $('#start').textContent = 'Gemeldet';
+  lookHud('<b>gemeldet</b>, verfolge deine Teile');
 }
 async function segment(target, run) {
   if (run !== m3.run || m3.state !== 'run') return;
@@ -546,12 +562,13 @@ async function segment(target, run) {
     if (!u.length) { newBoard(); const v = unsolved(); return segment(v[Math.floor(Math.random() * v.length)], run); }
     return segment(u[Math.floor(Math.random() * u.length)], run);
   }
-  m3.target = target; m3.found = -1; m3.sel = null;
+  m3.target = target; m3.sel = null; m3.flagged = false; m3.phase = 'anim';
   m3.cands = unsolved().filter(j => j !== target);
-  clearHL();
+  setGrey(false); clearHL();
   setHL(pairPieces[target].corner, 'cur'); setHL(pairPieces[target].edge, 'cur');
   renderTask();
   lookHud();
+  $('#start').textContent = 'Gefunden';
   faceSlot(target);
   const sol = solvePair(target);
   setBar(0);
@@ -565,10 +582,22 @@ async function segment(target, run) {
   }
   if (run !== m3.run || m3.state !== 'run') return;
   setHL(pairPieces[target].corner, null); setHL(pairPieces[target].edge, null);
-  if (m3.found < 0) { failLook('Zu langsam, das Paar war schon drin.'); return; }
+  if (!m3.flagged) { failLook('Zu spät gemeldet, das blaue Paar war schon drin.'); return; }
+
+  // Aus dem Gedächtnis zeigen
+  m3.phase = 'verify';
+  setGrey(true);
+  renderTask();
+  lookHud('Klick an, wo deine Ecke und Kante jetzt sind');
+  $('#start').textContent = 'Zeigen …';
+  const next = await new Promise(res => { m3.verify = res; });
+  if (run !== m3.run || m3.state !== 'run') return;
+  setGrey(false);
+  setHL(pairPieces[next].corner, 'ok'); setHL(pairPieces[next].edge, 'ok');
   m3.pairs++; m3.best = m3.tps; m3.tps = Math.round((m3.tps + 0.25) * 100) / 100;
-  const next = m3.found;
-  setHL(pairPieces[next].corner, null); setHL(pairPieces[next].edge, null);
+  lookHud(`<b>${PAIRS[next].name}</b> richtig`);
+  await new Promise(r => setTimeout(r, 650));
+  if (run !== m3.run || m3.state !== 'run') return;
   const left = unsolved();
   if (left.length <= 1) {
     newBoard();
@@ -577,34 +606,36 @@ async function segment(target, run) {
   } else segment(next, run);
 }
 function pickLook(c) {
-  if (m3.state !== 'run' || m3.found >= 0 || c.type === 'center') return;
-  if (c.role !== 'f2l' || !m3.cands.includes(c.pair)) { flashBad([c]); failLook(c.pair === m3.target ? 'Das ist das Paar, das gerade eingesetzt wird.' : 'Das Teil gehört zu keinem offenen Paar.'); return; }
+  if (m3.state !== 'run') return;
+  if (m3.phase === 'anim') { flagLook(); return; }
+  if (m3.phase !== 'verify' || c.type === 'center') return;
+  if (c.role !== 'f2l' || !m3.cands.includes(c.pair)) { failLook('Da lag keins deiner Teile.', [c]); return; }
   if (!m3.sel) { m3.sel = c; setHL(c, 'sel'); return; }
   if (m3.sel === c) { setHL(c, null); m3.sel = null; return; }
   if (m3.sel.pair === c.pair && m3.sel.type !== c.type) {
-    m3.found = c.pair;
-    m3.searches.push((performance.now() - m3.segStart) / 1000);
-    setHL(m3.sel, 'ok'); setHL(c, 'ok');
-    $('#msg').innerHTML = `Paare in Folge: <b>${m3.pairs}</b> · <b>${PAIRS[c.pair].name}</b> gefunden`;
+    const j = c.pair; m3.sel = null; m3.phase = 'done';
+    const res = m3.verify; m3.verify = null; res(j);
     return;
   }
-  flashBad([m3.sel, c]);
-  failLook('Ecke und Kante gehören nicht zusammen.');
+  failLook('Ecke und Kante gehören nicht zusammen.', [m3.sel, c]);
 }
-function failLook(reason) {
-  m3.state = 'over';
+function failLook(reason, wrong) {
+  const wasVerify = m3.phase === 'verify';
+  m3.state = 'over'; m3.phase = '';
+  setGrey(false); clearHL();
+  if (wrong) wrong.forEach(c => setHL(c, 'bad'));
   $('#timer').className = 'timer bad';
   const avg = m3.searches.length ? m3.searches.reduce((a, b) => a + b, 0) / m3.searches.length : null;
   lookData.push({ pairs: m3.pairs, best: m3.best, start: opts.tps, avg: avg && Math.round(avg * 100) / 100, d: Date.now() });
   store.set('look', lookData);
   $('#task').textContent = `Lauf vorbei: ${m3.pairs} ${m3.pairs === 1 ? 'Paar' : 'Paare'}`;
-  $('#msg').innerHTML = `${reason} Orange: ein offenes Paar. Neuer Lauf mit <kbd>Leertaste</kbd>.`;
+  $('#msg').innerHTML = `${reason} ${wasVerify ? 'Orange: wo die offenen Paare wirklich lagen' : 'Orange: ein Paar, das du hättest nehmen können'}. Neuer Lauf mit <kbd>Leertaste</kbd>.`;
   $('#start').textContent = 'Neuer Lauf';
   setTimeout(() => {
     if (m3.state !== 'over') return;
-    const j = m3.cands.find(k => k !== m3.found);
-    if (j !== undefined) { setHL(pairPieces[j].corner, 'hint'); setHL(pairPieces[j].edge, 'hint'); }
-  }, 420);
+    const js = wasVerify ? m3.cands : m3.cands.slice(0, 1);
+    js.forEach(j => { if (!pairSolved(j)) { setHL(pairPieces[j].corner, 'hint'); setHL(pairPieces[j].edge, 'hint'); } });
+  }, 500);
   renderStats();
 }
 
@@ -620,7 +651,9 @@ function renderTask() {
   if (opts.mode === 'find') {
     t.innerHTML = m1.target >= 0 ? `Finde ${chipHTML(m1.target)}` : 'Finde ein beliebiges Paar';
   } else {
-    t.innerHTML = m3.state === 'run' && m3.target >= 0 ? `Blau wird eingesetzt. Finde das nächste Paar.` : 'Finde das nächste Paar, bevor das blaue drin ist';
+    t.innerHTML = m3.state !== 'run' ? 'Finde das nächste Paar, bevor das blaue drin ist'
+      : m3.phase === 'verify' ? 'Wo sind deine Teile jetzt?'
+      : 'Blau wird eingesetzt. Finde das nächste Paar.';
   }
 }
 
@@ -641,10 +674,10 @@ function setMode(mode) {
   renderTask();
   $('#msg').innerHTML = mode === 'find'
     ? 'Start mit <kbd>Leertaste</kbd>. Die Zeit läuft, sobald der Würfel neu gemischt ist.'
-    : 'Ein Paar wird automatisch eingesetzt. Klick währenddessen Ecke und Kante eines anderen Paars an. Jedes Paar macht es schneller.';
+    : 'Das blaue Paar wird eingesetzt. Hast du das nächste gefunden, drück <kbd>Leertaste</kbd> oder tipp auf den Würfel. Danach wird er grau, und du zeigst, wo deine Teile gelandet sind.';
   $('#hint').innerHTML = mode === 'find'
     ? 'Falscher Klick: +1 s. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.'
-    : 'Falscher Klick oder zu langsam: Lauf vorbei. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.';
+    : 'Zu spät gemeldet oder falsch gezeigt: Lauf vorbei. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.';
   renderStats();
 }
 
@@ -735,7 +768,9 @@ $('#clear').addEventListener('click', () => {
 });
 
 function primary() {
-  if (opts.mode === 'find') startFind(); else startLook();
+  if (opts.mode === 'find') startFind();
+  else if (m3.state !== 'run') startLook();
+  else flagLook();
 }
 $('#start').addEventListener('click', primary);
 $('#rotL').addEventListener('click', () => turnView(-1));
@@ -748,7 +783,7 @@ $('#tps').value = String(opts.tps);
 $('#tps').addEventListener('change', e => { opts.tps = +e.target.value; saveOpts(); if (m3.state !== 'run') $('#timer').textContent = fmtNum(opts.tps) + '/s'; });
 document.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('select, input')) return;
-  if (e.code === 'Space') { e.preventDefault(); if (e.repeat) return; if (opts.mode === 'find' && m1.state === 'run') return; if (opts.mode === 'look' && m3.state === 'run') return; primary(); }
+  if (e.code === 'Space') { e.preventDefault(); if (e.repeat) return; if (opts.mode === 'find' && m1.state === 'run') return; primary(); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); turnView(-1); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); turnView(1); }
 });
