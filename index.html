@@ -34,10 +34,28 @@
   header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
   h1 { font-family: Unbounded, Figtree, sans-serif; font-size: 1.35rem; margin: 0; letter-spacing: .01em; }
   h1 span { color: var(--sel); }
-  .tabs { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; }
-  .tabs button { font: inherit; font-weight: 700; color: var(--muted); background: none; border: 0; border-radius: 9px; padding: 8px 14px; cursor: pointer; }
-  .tabs button[aria-selected="true"] { background: var(--sel); color: #1a1a1a; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
+  .mode-name { color: var(--muted); font-weight: 700; margin-left: 10px; font-size: 1rem; }
+
+  #menu { padding-block: 10px 28px; }
+  #menu h2 { font-family: Unbounded, Figtree, sans-serif; font-size: clamp(1.3rem, 4.5vw, 1.9rem); margin: 6px 0 20px; text-wrap: balance; }
+  .modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 720px) { .modes { grid-template-columns: 1fr; } .mode { grid-template-columns: 120px 1fr; align-items: center; } .mode svg { height: 110px; } .mode .stat { grid-column: 1 / -1; } }
+  .mode { text-align: left; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; cursor: pointer; display: grid; gap: 12px; transition: transform .15s, border-color .15s; }
+  .mode:hover { transform: translateY(-3px); border-color: var(--sel); }
+  .mode svg { width: 100%; height: 132px; display: block; border-radius: 12px; background: radial-gradient(circle at 50% 45%, #22304d 0%, #121a2b 75%); }
+  .mode h3 { margin: 0; font-size: 1.2rem; }
+  .mode p { margin: 2px 0 0; color: var(--muted); font-size: .92rem; }
+  .mode .stat { font-family: "JetBrains Mono", monospace; font-size: .85rem; color: var(--sel); }
+
+  .cross-in { margin-top: 12px; }
+  .seq { display: flex; gap: 8px; }
+  .seq input { flex: 1; min-width: 0; font: 600 1.05rem "JetBrains Mono", ui-monospace, monospace; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+  .pad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 8px; }
+  .pad button { font: 600 .95rem "JetBrains Mono", ui-monospace, monospace; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 0; cursor: pointer; }
+  .pad button:active { background: var(--line); }
+  .sol { font-family: "JetBrains Mono", monospace; color: var(--ink); }
+  .linkbtn { font: inherit; color: var(--sel); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 
   main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
   @media (max-width: 880px) { main { grid-template-columns: 1fr; } }
@@ -99,14 +117,16 @@
 <body>
 <div class="app">
   <header>
-    <h1>F2L<span>-</span>Radar</h1>
-    <div class="tabs" role="tablist">
-      <button id="tab-find" role="tab" aria-selected="true">Paar finden</button>
-      <button id="tab-look" role="tab" aria-selected="false">Look-ahead</button>
-    </div>
+    <h1>F2L<span>-</span>Radar<span class="mode-name" id="mode-name"></span></h1>
+    <button class="btn" id="back" hidden>← Menü</button>
   </header>
 
-  <main>
+  <section id="menu">
+    <h2>Was trainierst du heute?</h2>
+    <div class="modes" id="modes"></div>
+  </section>
+
+  <main id="app" hidden>
     <section class="stage">
       <div class="hud">
         <div>
@@ -136,6 +156,21 @@
             <option value="4">4 Züge/s</option>
           </select>
         </label>
+        <label class="opt" id="opt-insp" hidden>Anschauen
+          <select id="insp">
+            <option value="8">8 s</option>
+            <option value="15" selected>15 s</option>
+            <option value="30">30 s</option>
+          </select>
+        </label>
+      </div>
+      <div class="cross-in" id="cross-in" hidden>
+        <div class="seq">
+          <input id="seq" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="z. B. D R' F2 L" aria-label="Deine Cross-Züge">
+          <button class="btn" id="bksp" aria-label="Letzten Zug löschen">⌫</button>
+          <button class="btn primary" id="check">Prüfen</button>
+        </div>
+        <div class="pad" id="pad"></div>
       </div>
       <p class="hint" id="hint"></p>
     </section>
@@ -417,6 +452,10 @@ function loop(now) {
     if (p >= 1) finishAnim();
   }
   if (m1.state === 'run') $('#timer').textContent = fmt((now - m1.t0) / 1000 + m1.pen);
+  if (mc.state === 'inspect') {
+    const left = mc.limit - (now - mc.t0) / 1000;
+    if (left <= 0) toInput(); else $('#timer').textContent = Math.ceil(left) + ' s';
+  }
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
@@ -474,7 +513,8 @@ const store = {
 };
 let findData = store.get('find', []);
 let lookData = store.get('look', []);
-const opts = Object.assign({ mode: 'find', fix: false, tps: 2 }, store.get('opts', {}));
+let crossData = store.get('cross', []);
+const opts = Object.assign({ mode: 'find', fix: false, tps: 2, insp: 15 }, store.get('opts', {}));
 const saveOpts = () => store.set('opts', opts);
 
 const fmt = s => s.toFixed(2);
@@ -639,8 +679,136 @@ function failLook(reason, wrong) {
   renderStats();
 }
 
+/* ---------- Modus 3: Cross-Planer ---------- */
+// Abstandstabelle für alle Lagen der vier Cross-Kanten (24^4 Einträge, einmal per Breitensuche)
+let crossDist = null;
+const encX = s => ((s[0] * 24 + s[1]) * 24 + s[2]) * 24 + s[3];
+function getCrossDist() {
+  if (crossDist) return crossDist;
+  const d = new Int8Array(331776).fill(-1);
+  const g = encX(crossEdges.map(goalState));
+  d[g] = 0; let q = [g];
+  while (q.length) {
+    const nq = [];
+    for (const x of q) {
+      const a = (x / 13824) | 0, b = ((x / 576) | 0) % 24, c = ((x / 24) | 0) % 24, e = x % 24;
+      for (let m = 0; m < 18; m++) {
+        const t = MTE[m], y = ((t[a] * 24 + t[b]) * 24 + t[c]) * 24 + t[e];
+        if (d[y] < 0) { d[y] = d[x] + 1; nq.push(y); }
+      }
+    }
+    q = nq;
+  }
+  return (crossDist = d);
+}
+function solveCross() {
+  const D = getCrossDist();
+  let s = crossEdges.map(curState), k = D[encX(s)];
+  const out = [];
+  while (k > 0) {
+    for (let m = 0; m < 18; m++) {
+      const n = s.map(v => MTE[m][v]);
+      if (D[encX(n)] === k - 1) { out.push(m); s = n; k--; break; }
+    }
+  }
+  return out;
+}
+const crossDone = () => crossEdges.filter(c => curState(c) === goalState(c)).length;
+function parseMoves(str) {
+  const toks = str.replace(/[’´`]/g, "'").trim().split(/\s+/).filter(Boolean);
+  const out = [];
+  for (const t of toks) {
+    const m = /^([URFDLB])(2'?|'2?)?$/i.exec(t);
+    if (!m) return { error: t };
+    const suf = m[2] || '';
+    out.push(MV[m[1].toUpperCase() + (suf.includes('2') ? '2' : suf)]);
+  }
+  return { moves: out };
+}
+const movesText = ms => ms.map(m => MOVES[m].name).join(' ');
+function applyScramble(list) { resetLogic(); list.forEach(applyLogic); syncAll(); }
+function viewHome() { yawT = -Math.PI / 4; pitchT = 0.5; }
+
+const mc = { state: 'idle', run: 0, t0: 0, limit: 15, used: 0, scr: [], opt: [] };
+function crossScramble() {
+  const D = getCrossDist();
+  do {
+    const s = []; let last = -1;
+    while (s.length < 22) { const m = Math.floor(Math.random() * 18); if (MOVES[m].fi === last) continue; s.push(m); last = MOVES[m].fi; }
+    mc.scr = s; applyScramble(s);
+  } while (D[encX(crossEdges.map(curState))] < 3);
+  setGrey(false); clearHL();
+}
+function startCross() {
+  mc.run++;
+  if (anim) finishAnim();
+  crossScramble(); viewHome();
+  mc.state = 'inspect'; mc.t0 = performance.now(); mc.limit = opts.insp;
+  $('#cross-in').hidden = true;
+  $('#timer').className = 'timer';
+  $('#task').textContent = 'Schau dir den Würfel an und plane dein Cross';
+  $('#msg').innerHTML = 'Drehen mit <kbd>←</kbd> <kbd>→</kbd>, von unten mit <kbd>↓</kbd>. Fertig geplant: <kbd>Leertaste</kbd>.';
+  $('#start').textContent = 'Fertig geplant';
+}
+function toInput() {
+  if (mc.state !== 'inspect') return;
+  mc.used = Math.min(mc.limit, (performance.now() - mc.t0) / 1000);
+  mc.state = 'input';
+  setGrey(true);
+  $('#timer').textContent = fmtNum(mc.used, 1) + ' s';
+  $('#task').textContent = 'Gib dein Cross ein';
+  $('#msg').innerHTML = 'Weiß unten, Grün vorne, wie auf dem Bild. Tippen oder die Tasten unten nutzen, dann <b>Prüfen</b>.';
+  $('#start').textContent = 'Neu mischen';
+  $('#seq').value = '';
+  $('#cross-in').hidden = false;
+  if (!matchMedia('(pointer: coarse)').matches) $('#seq').focus();
+}
+async function checkCross() {
+  if (mc.state !== 'input') return;
+  const p = parseMoves($('#seq').value);
+  if (p.error) { $('#msg').innerHTML = `„<b>${p.error.replace(/</g, '&lt;')}</b>“ ist kein Zug. Erlaubt sind U D R L F B, dahinter ' oder 2.`; return; }
+  if (!p.moves.length) { $('#msg').textContent = 'Noch keine Züge eingegeben.'; return; }
+  const run = mc.run;
+  mc.state = 'show';
+  mc.opt = solveCross();
+  $('#cross-in').hidden = true;
+  setGrey(false);
+  $('#task').textContent = 'Deine Züge';
+  $('#msg').innerHTML = `<span class="sol">${movesText(p.moves)}</span>`;
+  for (const m of p.moves) {
+    if (run !== mc.run) return;
+    await animateMove(m, 320);
+  }
+  if (run !== mc.run) return;
+  const ok = crossDone() === 4, n = p.moves.length, opt = mc.opt.length;
+  crossData.push({ ok, n, opt, used: Math.round(mc.used * 10) / 10, d: Date.now() });
+  store.set('cross', crossData);
+  crossEdges.forEach(c => setHL(c, curState(c) === goalState(c) ? 'ok' : 'bad'));
+  pitchT = -0.55;
+  $('#timer').className = 'timer ' + (ok ? 'good' : 'bad');
+  $('#timer').textContent = n + (n === 1 ? ' Zug' : ' Züge');
+  $('#task').textContent = ok ? (n === opt ? 'Cross fertig, kürzer geht es nicht' : `Cross fertig, ${n - opt} ${n - opt === 1 ? 'Zug' : 'Züge'} mehr als nötig`) : `Nicht fertig: ${crossDone()} von 4 Kanten sitzen`;
+  $('#msg').innerHTML = `Kürzeste Lösung (${opt}): <span class="sol">${movesText(mc.opt)}</span> · <button class="linkbtn" id="show-opt">vorspielen</button> · weiter mit <kbd>Leertaste</kbd>`;
+  $('#show-opt').addEventListener('click', showOptimal);
+  $('#start').textContent = 'Nächster';
+  mc.state = 'done';
+  renderStats();
+}
+async function showOptimal() {
+  if (mc.state !== 'done') return;
+  const run = ++mc.run;
+  mc.state = 'replay';
+  applyScramble(mc.scr); clearHL(); viewHome();
+  await new Promise(r => setTimeout(r, 500));
+  for (const m of mc.opt) { if (run !== mc.run) return; await animateMove(m, 450); }
+  if (run !== mc.run) return;
+  crossEdges.forEach(c => setHL(c, 'ok'));
+  pitchT = -0.55;
+  mc.state = 'done';
+}
+
 /* ---------- Oberfläche ---------- */
-function pick(c) { if (opts.mode === 'find') pickFind(c); else pickLook(c); }
+function pick(c) { if (opts.mode === 'find') pickFind(c); else if (opts.mode === 'look') pickLook(c); }
 
 function chipHTML(j) {
   const P = PAIRS[j];
@@ -648,7 +816,9 @@ function chipHTML(j) {
 }
 function renderTask() {
   const t = $('#task');
-  if (opts.mode === 'find') {
+  if (opts.mode === 'cross') {
+    t.textContent = 'Plane dein Cross im Kopf';
+  } else if (opts.mode === 'find') {
     t.innerHTML = m1.target >= 0 ? `Finde ${chipHTML(m1.target)}` : 'Finde ein beliebiges Paar';
   } else {
     t.innerHTML = m3.state !== 'run' ? 'Finde das nächste Paar, bevor das blaue drin ist'
@@ -657,36 +827,106 @@ function renderTask() {
   }
 }
 
+const MODES = {
+  find: 'F2L Paar finden',
+  look: 'Look-ahead',
+  cross: 'Cross-Planer'
+};
+function stopAll() {
+  m1.state = 'idle'; m3.state = 'idle'; m3.run++; mc.state = 'idle'; mc.run++;
+  if (anim) finishAnim();
+}
 function setMode(mode) {
   opts.mode = mode; saveOpts();
-  m1.state = 'idle'; m3.state = 'idle'; m3.run++;
-  if (anim) finishAnim();
-  $('#tab-find').setAttribute('aria-selected', mode === 'find');
-  $('#tab-look').setAttribute('aria-selected', mode === 'look');
+  stopAll();
+  $('#mode-name').textContent = '· ' + MODES[mode];
   $('#opt-fix').hidden = mode !== 'find';
   $('#opt-tps').hidden = mode !== 'look';
+  $('#opt-insp').hidden = mode !== 'cross';
+  $('#cross-in').hidden = true;
   $('#bar').hidden = true;
   $('#start').textContent = 'Start';
   $('#timer').className = 'timer';
-  $('#timer').textContent = mode === 'find' ? '0.00' : fmtNum(opts.tps) + '/s';
+  $('#timer').textContent = mode === 'find' ? '0.00' : mode === 'look' ? fmtNum(opts.tps) + '/s' : opts.insp + ' s';
   m1.target = -1; m3.target = -1;
-  newBoard();
+  viewHome();
+  if (mode === 'cross') crossScramble(); else newBoard();
   renderTask();
+  const turn = '<kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.';
   $('#msg').innerHTML = mode === 'find'
     ? 'Start mit <kbd>Leertaste</kbd>. Die Zeit läuft, sobald der Würfel neu gemischt ist.'
-    : 'Das blaue Paar wird eingesetzt. Hast du das nächste gefunden, drück <kbd>Leertaste</kbd> oder tipp auf den Würfel. Danach wird er grau, und du zeigst, wo deine Teile gelandet sind.';
+    : mode === 'look'
+    ? 'Das blaue Paar wird eingesetzt. Hast du das nächste gefunden, drück <kbd>Leertaste</kbd> oder tipp auf den Würfel. Danach wird er grau, und du zeigst, wo deine Teile gelandet sind.'
+    : `Start mit <kbd>Leertaste</kbd>. Du hast ${opts.insp} s zum Anschauen, dann wird der Würfel grau und du gibst dein Cross ein.`;
   $('#hint').innerHTML = mode === 'find'
-    ? 'Falscher Klick: +1 s. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.'
-    : 'Zu spät gemeldet oder falsch gezeigt: Lauf vorbei. <kbd>←</kbd> <kbd>→</kbd> dreht den Würfel, Ziehen dreht ihn frei.';
+    ? 'Falscher Klick: +1 s. ' + turn
+    : mode === 'look'
+    ? 'Zu spät gemeldet oder falsch gezeigt: Lauf vorbei. ' + turn
+    : 'Weiß unten, Grün vorne. ' + turn + ' <kbd>↓</kbd> zeigt die Unterseite, <kbd>↑</kbd> wieder von oben.';
   renderStats();
 }
+
+function faceSVG(cells, rings, extra) {
+  let s = '<svg viewBox="0 0 120 120" aria-hidden="true"><rect x="14" y="14" width="92" height="92" rx="12" fill="#0b0f18"/>';
+  cells.forEach((c, i) => {
+    const x = 19 + (i % 3) * 28, y = 19 + Math.floor(i / 3) * 28;
+    s += `<rect x="${x}" y="${y}" width="26" height="26" rx="5" fill="${c}"/>`;
+    if (rings[i]) s += `<rect x="${x - 3}" y="${y - 3}" width="32" height="32" rx="7" fill="none" stroke="${rings[i]}" stroke-width="3"/>`;
+  });
+  return s + (extra || '') + '</svg>';
+}
+function renderMenu() {
+  const H = HEX, G = '#4a5163', last = (a, f) => a.length ? f(a) : null;
+  const findT = findData.filter(x => !x.fix).map(x => x.t);
+  const cards = [
+    { mode: 'find', svg: faceSVG([H.F, H.U, H.R, H.L, H.U, H.B, H.D, H.F, H.U], { 2: '#ffd500', 6: '#ffd500' }),
+      text: 'Ecke und Kante eines Paars so schnell wie möglich antippen.',
+      stat: last(findT, t => `Ø 12: ${t.length >= 12 ? fmtNum(mean(t.slice(-12))) + ' s' : '–'} · Bestzeit ${fmtNum(Math.min(...t))} s`) },
+    { mode: 'look', svg: faceSVG([H.B, H.R, H.U, H.U, H.F, H.L, H.U, H.D, H.R], { 0: '#5b8cff', 1: '#5b8cff', 7: '#ffd500', 8: '#ffd500' }),
+      text: 'Das nächste Paar finden, während das aktuelle eingesetzt wird.',
+      stat: last(lookData, d => `Meiste Paare: ${Math.max(...d.map(x => x.pairs))}`) },
+    { mode: 'cross', svg: faceSVG([G, H.D, G, H.D, H.D, H.D, G, H.D, G], {}, '<text x="98" y="112" fill="#ffd500" font-family="JetBrains Mono, monospace" font-size="15" font-weight="600" text-anchor="end">15s</text>'),
+      text: 'Anschauen, planen, dann das Cross blind eingeben.',
+      stat: last(crossData, d => `Geschafft: ${Math.round(100 * d.filter(x => x.ok).length / d.length)} %`) }
+  ];
+  $('#modes').innerHTML = cards.map(c => `<button class="mode" data-mode="${c.mode}">${c.svg}<div><h3>${MODES[c.mode]}</h3><p>${c.text}</p></div>${c.stat ? `<span class="stat">${c.stat}</span>` : ''}</button>`).join('');
+}
+function showMenu() {
+  stopAll();
+  renderMenu();
+  $('#menu').hidden = false; $('#app').hidden = true; $('#back').hidden = true;
+  $('#mode-name').textContent = '';
+}
+function enterMode(mode) {
+  $('#menu').hidden = true; $('#app').hidden = false; $('#back').hidden = false;
+  resize();
+  setMode(mode);
+}
+$('#modes').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) enterMode(b.dataset.mode); });
+$('#back').addEventListener('click', showMenu);
 
 function tile(label, val) { return `<div class="tile"><small>${label}</small><b>${val}</b></div>`; }
 const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
 
 function renderStats() {
   const tiles = $('#tiles'), list = $('#list');
-  if (opts.mode === 'find') {
+  if (opts.mode === 'cross') {
+    const d = crossData, okd = d.filter(x => x.ok), r = okd.slice(-12);
+    $('#stats-title').textContent = 'Statistik · Cross-Planer';
+    tiles.innerHTML = tile('Geschafft', d.length ? Math.round(100 * okd.length / d.length) + ' %' : '–')
+      + tile('Ø Mehrzüge', r.length ? '+' + fmtNum(mean(r.map(x => x.n - x.opt)), 1) : '–')
+      + tile('Ø Planzeit', d.length ? fmtNum(mean(d.slice(-12).map(x => x.used)), 1) + ' s' : '–')
+      + tile('Versuche', String(d.length));
+    $('#chart-title').textContent = 'Verlauf · Züge';
+    $('#legend').innerHTML = '<span><i style="background:#8fb0ff"></i>deine</span><span><i style="background:#ffd500"></i>kürzeste</span><span><i style="background:#ff5468"></i>nicht fertig</span>';
+    const s = d.slice(-60);
+    drawChart(s.map(x => x.n), false, { second: s.map(x => x.opt), bad: s.map(x => !x.ok) });
+    $('#list-title').textContent = 'Letzte Versuche';
+    list.innerHTML = d.length ? d.slice().reverse().slice(0, 40).map((x, i) => {
+      const idx = d.length - 1 - i;
+      return `<li><span class="n">${d.length - i}</span><span class="v">${x.ok ? '✓' : '✗'} ${x.n} · kürzeste ${x.opt}</span><span class="d">${fmtDate(x.d)}</span><button class="x" data-del="${idx}" aria-label="Versuch löschen">×</button></li>`;
+    }).join('') : '<li class="empty">Noch keine Versuche.</li>';
+  } else if (opts.mode === 'find') {
     const d = findData.filter(x => !!x.fix === !!opts.fix), t = d.map(x => x.t);
     $('#stats-title').textContent = opts.fix ? 'Statistik · Paar vorgegeben' : 'Statistik · beliebiges Paar';
     tiles.innerHTML = tile('Bestzeit', t.length ? fmtNum(Math.min(...t)) : '–')
@@ -720,14 +960,14 @@ function renderStats() {
   }
 }
 
-function drawChart(vals, lowerBetter) {
+function drawChart(vals, lowerBetter, extra) {
   const cv = $('#chart'), dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = cv.clientWidth, h = cv.clientHeight;
   cv.width = w * dpr; cv.height = h * dpr;
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   g.font = '11px Figtree, sans-serif'; g.fillStyle = '#93a0bb';
   if (vals.length < 2) { g.fillText('Ab zwei Versuchen erscheint hier eine Kurve.', 4, h / 2); return; }
-  let lo = Math.min(...vals), hi = Math.max(...vals);
+  let lo = Math.min(...vals), hi = Math.max(...vals, ...(extra ? extra.second : []));
   if (!lowerBetter) lo = 0;
   if (hi - lo < 1e-6) hi = lo + 1;
   const padL = 30, padR = 6, padT = 8, padB = 16;
@@ -740,9 +980,11 @@ function drawChart(vals, lowerBetter) {
   });
   g.strokeStyle = '#8fb0ff'; g.lineWidth = 1.6; g.beginPath();
   vals.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))); g.stroke();
-  g.fillStyle = '#8fb0ff';
-  vals.forEach((v, i) => { g.beginPath(); g.arc(X(i), Y(v), 2.2, 0, 7); g.fill(); });
-  if (vals.length >= 5) {
+  vals.forEach((v, i) => { g.fillStyle = extra && extra.bad[i] ? '#ff5468' : '#8fb0ff'; g.beginPath(); g.arc(X(i), Y(v), extra && extra.bad[i] ? 3.2 : 2.2, 0, 7); g.fill(); });
+  if (extra) {
+    g.strokeStyle = '#ffd500'; g.lineWidth = 2; g.beginPath();
+    extra.second.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))); g.stroke();
+  } else if (vals.length >= 5) {
     g.strokeStyle = '#ffd500'; g.lineWidth = 2; g.beginPath();
     for (let i = 4; i < vals.length; i++) { const a = mean(vals.slice(i - 4, i + 1)); i === 4 ? g.moveTo(X(i), Y(a)) : g.lineTo(X(i), Y(a)); }
     g.stroke();
@@ -754,7 +996,8 @@ $('#list').addEventListener('click', e => {
   const b = e.target.closest('[data-del]'); if (!b) return;
   const i = +b.dataset.del;
   if (opts.mode === 'find') { findData.splice(i, 1); store.set('find', findData); }
-  else { lookData.splice(i, 1); store.set('look', lookData); }
+  else if (opts.mode === 'look') { lookData.splice(i, 1); store.set('look', lookData); }
+  else { crossData.splice(i, 1); store.set('cross', crossData); }
   renderStats();
 });
 let clearArmed = null;
@@ -763,33 +1006,52 @@ $('#clear').addEventListener('click', () => {
   if (!clearArmed) { b.textContent = 'Wirklich alle löschen?'; clearArmed = setTimeout(() => { clearArmed = null; b.textContent = 'Alle löschen'; }, 3000); return; }
   clearTimeout(clearArmed); clearArmed = null; b.textContent = 'Alle löschen';
   if (opts.mode === 'find') { findData = findData.filter(x => !!x.fix !== !!opts.fix); store.set('find', findData); }
-  else { lookData = []; store.set('look', lookData); }
+  else if (opts.mode === 'look') { lookData = []; store.set('look', lookData); }
+  else { crossData = []; store.set('cross', crossData); }
   renderStats();
 });
 
 function primary() {
   if (opts.mode === 'find') startFind();
+  else if (opts.mode === 'cross') { if (mc.state === 'inspect') toInput(); else startCross(); }
   else if (m3.state !== 'run') startLook();
   else flagLook();
 }
 $('#start').addEventListener('click', primary);
 $('#rotL').addEventListener('click', () => turnView(-1));
 $('#rotR').addEventListener('click', () => turnView(1));
-$('#tab-find').addEventListener('click', () => setMode('find'));
-$('#tab-look').addEventListener('click', () => setMode('look'));
+$('#pad').innerHTML = ['U', 'D', 'R', 'L', 'F', 'B'].flatMap(f => [f, f + "'", f + '2']).map(m => `<button type="button" data-mv="${m}">${m}</button>`).join('');
+$('#pad').addEventListener('click', e => {
+  const b = e.target.closest('[data-mv]'); if (!b) return;
+  const v = $('#seq').value.trim();
+  $('#seq').value = (v ? v + ' ' : '') + b.dataset.mv;
+});
+$('#bksp').addEventListener('click', () => { $('#seq').value = $('#seq').value.trim().split(/\s+/).slice(0, -1).join(' '); });
+$('#check').addEventListener('click', checkCross);
+$('#seq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); checkCross(); } });
+$('#insp').value = String(opts.insp);
+$('#insp').addEventListener('change', e => { opts.insp = +e.target.value; saveOpts(); if (mc.state === 'idle') setMode('cross'); });
 $('#fix').checked = opts.fix;
 $('#fix').addEventListener('change', e => { opts.fix = e.target.checked; saveOpts(); m1.state = 'idle'; m1.target = -1; $('#start').textContent = 'Start'; renderTask(); renderStats(); });
 $('#tps').value = String(opts.tps);
 $('#tps').addEventListener('change', e => { opts.tps = +e.target.value; saveOpts(); if (m3.state !== 'run') $('#timer').textContent = fmtNum(opts.tps) + '/s'; });
 document.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('select, input')) return;
-  if (e.code === 'Space') { e.preventDefault(); if (e.repeat) return; if (opts.mode === 'find' && m1.state === 'run') return; primary(); }
+  if ($('#app').hidden) return;
+  if (e.code === 'Space') {
+    e.preventDefault(); if (e.repeat) return;
+    if (opts.mode === 'find' && m1.state === 'run') return;
+    if (opts.mode === 'cross' && (mc.state === 'input' || mc.state === 'replay')) return;
+    primary();
+  }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); turnView(-1); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); turnView(1); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); pitchT = -0.55; }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); pitchT = 0.5; }
 });
-window.addEventListener('resize', renderStats);
+window.addEventListener('resize', () => { if (!$('#app').hidden) renderStats(); });
 
-setMode(opts.mode);
+showMenu();
 resize();
 requestAnimationFrame(loop);
 })();
